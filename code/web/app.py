@@ -23,15 +23,45 @@ from fastapi.responses import HTMLResponse, Response
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import WEB_HOST, WEB_PORT, WEB_PUBLIC_HOST  # noqa: E402
-from db import connect, latest_sample  # noqa: E402
+from db import connect, latest_sample, log_event  # noqa: E402
 from web.render import render_bmp  # noqa: E402
 
 app = FastAPI(title="outdoor.computer")
 
 
+@app.get("/api/setup")
+def api_setup(request: Request):
+    """Called by the ESP32 on first boot (or whenever SPIFFS has no saved API key).
+
+    Local trust model: we don't validate or track devices. Just hand back a stub
+    api_key that the rest of the endpoints also don't check, plus a friendly_id
+    derived from the device's MAC for log clarity. The ESP32 saves both to flash
+    and uses them on subsequent /api/display calls.
+
+    Logs the setup to the `events` table so you can see when devices first connect.
+    """
+    device_id = request.headers.get("ID", "unknown")
+    ts = int(time.time())
+
+    conn = connect()
+    log_event(conn, "device_setup", f"id={device_id}")
+    conn.close()
+
+    friendly = device_id.replace(":", "")[-6:].upper() or "OUTDR1"
+    return {
+        "status":      200,
+        "api_key":     "outdoor-computer-local",
+        "friendly_id": friendly,
+        "image_url":   f"http://{WEB_PUBLIC_HOST}:{WEB_PORT}/image/display_{ts}.bmp",
+        "filename":    f"setup_{ts}",
+    }
+
+
 @app.get("/api/display")
 def api_display():
-    """ESP32 polls this. Returns JSON pointing at a freshly-timestamped BMP URL."""
+    """ESP32 polls this on its refresh cadence. Returns JSON pointing at a
+    freshly-timestamped BMP URL (the timestamp is critical — the firmware skips
+    download if filename matches previous fetch)."""
     ts = int(time.time())
     return {
         "status":          0,
@@ -42,6 +72,17 @@ def api_display():
         "firmware_url":    None,
         "reset_firmware":  False,
     }
+
+
+@app.post("/api/log")
+def api_log(request: Request):
+    """The ESP32 POSTs here when it detects issues with /api/display responses.
+    Just acknowledge — we don't parse the payload, but logging the fact that
+    something went wrong on the device is useful."""
+    conn = connect()
+    log_event(conn, "device_log", f"from={request.client.host if request.client else '?'}")
+    conn.close()
+    return {"status": 200}
 
 
 @app.get("/image/display_{ts}.bmp")
