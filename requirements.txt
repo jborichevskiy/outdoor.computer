@@ -4,5 +4,6 @@ python-multipart>=0.0.9    # FastAPI needs this for the /bulletin POST form
 pillow>=10.0
 requests>=2.31
 python-dotenv>=1.0
+pyserial>=3.5              # RLCD display driver (display.py, fill.py)
 # Uncomment when ready to poll the Starlink dish:
 # starlink-grpc-tools>=1.2
