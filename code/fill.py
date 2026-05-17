@@ -29,11 +29,16 @@ def pixel_addr(x: int, y: int) -> tuple[int, int]:
 # ─── serial helpers ──────────────────────────────────────────────────────────
 
 def find_port() -> str:
-    for pat in ("/dev/cu.usbmodem*", "/dev/cu.usbserial*"):
+    for pat in (
+        "/dev/cu.usbmodem*",    # Mac: ESP32-S3 USB CDC
+        "/dev/cu.usbserial*",   # Mac: CP210x / CH340
+        "/dev/ttyACM*",         # Linux/Pi: USB CDC
+        "/dev/ttyUSB*",         # Linux/Pi: USB-UART
+    ):
         m = glob.glob(pat)
         if m:
             return sorted(m)[0]
-    return "/dev/cu.usbmodem1101"
+    raise RuntimeError("No serial port found. Use --port to specify one.")
 
 def open_serial(port: str) -> serial.Serial:
     ser = serial.Serial(port, 921600, timeout=2, dsrdtr=False, rtscts=False)
@@ -107,6 +112,8 @@ def run(port: str):
         print("\nAll done.")
 
 if __name__ == "__main__":
-    import sys
-    port = sys.argv[1] if len(sys.argv) > 1 else find_port()
-    run(port)
+    import argparse
+    parser = argparse.ArgumentParser(description="Fill RLCD one pixel at a time")
+    parser.add_argument("--port", default=None, help="Serial port (auto-detected if omitted)")
+    args = parser.parse_args()
+    run(args.port or find_port())

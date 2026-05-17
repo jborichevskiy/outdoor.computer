@@ -114,12 +114,16 @@ def send_frame_wifi(frame_bytes: bytes, esp32_ip: str, port: int = 8080):
 
 def find_serial_port() -> str:
     import glob
-    # Mac: ESP32-S3 USB CDC shows up as usbmodem; CP210x as usbserial
-    for pattern in ("/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/cu.SLAB_USBtoUART*"):
+    for pattern in (
+        "/dev/cu.usbmodem*",    # Mac: ESP32-S3 USB CDC
+        "/dev/cu.usbserial*",   # Mac: CP210x / CH340
+        "/dev/ttyACM*",         # Linux/Pi: USB CDC
+        "/dev/ttyUSB*",         # Linux/Pi: USB-UART
+    ):
         matches = glob.glob(pattern)
         if matches:
             return sorted(matches)[0]
-    return "/dev/cu.usbmodem1101"  # fallback guess
+    raise RuntimeError("No serial port found. Use --port to specify one.")
 
 
 if __name__ == "__main__":
