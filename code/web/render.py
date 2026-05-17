@@ -5,9 +5,6 @@ Output format matches what the TRMNL firmware expects:
 - 1-bit (mode='1' in PIL)
 - BMP format (PIL writes bottom-up rows and 4-byte padding automatically)
 - Roughly 48KB on disk
-
-v0 renders a hello-world layout: title, current status, latest readings, timestamp.
-The real layout work happens in v1 — keep this file fast to iterate on.
 """
 
 import io
@@ -24,11 +21,10 @@ from db import connect, latest_sample  # noqa: E402
 WIDTH, HEIGHT = 800, 480
 BLACK, WHITE = 0, 1  # mode='1' has 0=black, 1=white
 
-# Try to find a reasonable bitmap font on the Pi. Pi OS ships DejaVu by default.
 _FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/Library/Fonts/Arial.ttf",  # fallback for local dev on macOS
+    "/Library/Fonts/Arial.ttf",
 ]
 
 
@@ -50,52 +46,83 @@ def _fmt_value(row) -> str:
     return "—"
 
 
+def _hline(draw, y, x0=20, x1=WIDTH - 20, width=2):
+    draw.line([(x0, y), (x1, y)], fill=BLACK, width=width)
+
+
 def render_bmp() -> bytes:
     """Return a 1-bit BMP as bytes, freshly built from current SQLite state."""
     img = Image.new("1", (WIDTH, HEIGHT), WHITE)
     draw = ImageDraw.Draw(img)
 
-    title_font   = _font(48)
-    section_font = _font(28)
-    body_font    = _font(22)
-    small_font   = _font(16)
+    title_font   = _font(52)
+    section_font = _font(30)
+    label_font   = _font(25)
+    hero_font    = _font(88)
+    small_font   = _font(17)
 
-    # Title
-    draw.text((20, 20), "outdoor.computer", font=title_font, fill=BLACK)
-    draw.line([(20, 80), (WIDTH - 20, 80)], fill=BLACK, width=2)
+    MID = 400
 
-    # Status
+    # ── Title ────────────────────────────────────────────────────────────────
+    draw.text((20, 16), "OUTDOOR.COMPUTER", font=title_font, fill=BLACK)
+    _hline(draw, 80)
+
+    # ── Status ───────────────────────────────────────────────────────────────
     conn = connect()
     status = _fmt_value(latest_sample(conn, "derived", "status"))
-    draw.text((20, 100), f"status: {status.upper()}", font=section_font, fill=BLACK)
+    draw.text((20, 90), f"STATUS: {status.upper()}", font=section_font, fill=BLACK)
+    _hline(draw, 136)
 
-    # Quick readings (left column)
-    y = 160
-    rows = [
-        ("ping (ms)",     latest_sample(conn, "local",    "ping_ms")),
-        ("slate in",      latest_sample(conn, "slate",    "in_octets")),
-        ("slate out",     latest_sample(conn, "slate",    "out_octets")),
-        ("starlink lat",  latest_sample(conn, "starlink", "latency_ms")),
-        ("obstruction",   latest_sample(conn, "starlink", "obstruction")),
+    # ── Section headers ───────────────────────────────────────────────────────
+    draw.text((20, 146), "NETWORK", font=section_font, fill=BLACK)
+    draw.text((MID + 20, 146), "WEATHER", font=section_font, fill=BLACK)
+    _hline(draw, 188)
+
+    # vertical divider between columns
+    draw.line([(MID, 136), (MID, HEIGHT - 44)], fill=BLACK, width=1)
+
+    # ── Network column ────────────────────────────────────────────────────────
+    net_rows = [
+        ("PING",      latest_sample(conn, "local",    "ping_ms"),     "ms"),
+        ("SLATE IN",  latest_sample(conn, "slate",    "in_octets"),   ""),
+        ("SLATE OUT", latest_sample(conn, "slate",    "out_octets"),  ""),
+        ("LATENCY",   latest_sample(conn, "starlink", "latency_ms"),  "ms"),
+        ("OBSTR",     latest_sample(conn, "starlink", "obstruction"), ""),
     ]
-    for label, row in rows:
-        draw.text((20, y), f"{label:18s} {_fmt_value(row)}", font=body_font, fill=BLACK)
-        y += 32
+    y = 202
+    for label, row, unit in net_rows:
+        val = _fmt_value(row)
+        if unit and val != "—":
+            val = f"{val} {unit}"
+        draw.text((20, y), label, font=label_font, fill=BLACK)
+        draw.text((210, y), val, font=label_font, fill=BLACK)
+        y += 38
 
-    # Weather (right column)
-    y = 160
-    weather_rows = [
-        ("temp (°F)",      latest_sample(conn, "weather", "temp_f")),
-        ("humidity (%)",   latest_sample(conn, "weather", "humidity_pct")),
-        ("wind (mph)",     latest_sample(conn, "weather", "wind_mph")),
+    # ── Weather column ────────────────────────────────────────────────────────
+    temp_raw = latest_sample(conn, "weather", "temp_f")
+    if temp_raw and temp_raw[1] is not None:
+        temp_display = f"{temp_raw[1]:.0f}°"
+    else:
+        temp_display = "—°"
+    draw.text((MID + 20, 192), temp_display, font=hero_font, fill=BLACK)
+
+    y = 306
+    wx_rows = [
+        ("HUMIDITY", latest_sample(conn, "weather", "humidity_pct"), "%"),
+        ("WIND",     latest_sample(conn, "weather", "wind_mph"),     "mph"),
     ]
-    for label, row in weather_rows:
-        draw.text((WIDTH // 2, y), f"{label:18s} {_fmt_value(row)}", font=body_font, fill=BLACK)
-        y += 32
+    for label, row, unit in wx_rows:
+        val = _fmt_value(row)
+        if unit and val != "—":
+            val = f"{val} {unit}"
+        draw.text((MID + 20, y), label, font=label_font, fill=BLACK)
+        draw.text((MID + 200, y), val, font=label_font, fill=BLACK)
+        y += 38
 
-    # Footer: timestamp
+    # ── Footer ────────────────────────────────────────────────────────────────
+    _hline(draw, HEIGHT - 44)
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    draw.text((20, HEIGHT - 30), f"rendered {stamp}", font=small_font, fill=BLACK)
+    draw.text((20, HEIGHT - 36), f"RENDERED {stamp}", font=small_font, fill=BLACK)
 
     conn.close()
 

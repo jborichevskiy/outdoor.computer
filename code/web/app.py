@@ -67,10 +67,11 @@ def api_display():
         "status":          0,
         "image_url":       f"http://{WEB_PUBLIC_HOST}:{WEB_PORT}/image/display_{ts}.bmp",
         "filename":        f"display_{ts}",
-        "refresh_rate":    "900",   # 15 min, matches firmware default
-        "update_firmware": False,
-        "firmware_url":    None,
-        "reset_firmware":  False,
+        "refresh_rate":    "60",   # 1 min
+        "update_firmware":        False,
+        "firmware_url":           None,
+        "reset_firmware":         False,
+        "maximum_compatibility":  True,
     }
 
 
